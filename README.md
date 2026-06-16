@@ -127,7 +127,7 @@ To make iterating even faster, this repository includes an `llm_prompt_template.
 
 You do not need to host or modify any HTML/JS files. We have deployed the universal client directly via GitHub Pages.
 
-**Access the dashboard here:** [[https://meneralllka.github.io/WorMa_Controller/](https://meneralllka.github.io/WorMa_Controller/)](https://prema-lab.github.io/PremaController_Web/)
+**Access the dashboard here:** [https://prema-lab.github.io/PremaController_Web/](https://prema-lab.github.io/PremaController_Web/)
 
 ### A. The Connection Handshake
 1. Ensure your computer/phone is on the **same Wi-Fi network** as the ESP32.
