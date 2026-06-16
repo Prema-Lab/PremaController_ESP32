@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Universal Telemetry & Control Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --glass-bg: rgba(255, 255, 255, 0.15);
+            --glass-border: rgba(255, 255, 255, 0.3);
+            --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.2);
+            --text-main: #e2e8f0;
+            --text-muted: #cbd5e1;
+            --accent: #38bdf8;
+            --accent-hover: #0ea5e9;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            margin: 0; padding: 20px;
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+            color: var(--text-main);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 800px; margin: auto; padding: 25px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            box-shadow: var(--glass-shadow);
+        }
+
+        h2 { text-align: center; margin-top: 0; color: #fff; font-weight: 300; letter-spacing: 1px; }
+        
+        .row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        
+        .status { font-weight: 600; padding: 6px 12px; border-radius: 20px; background: rgba(0,0,0,0.2); }
+        .status.disconnected { color: #f87171; }
+        .status.connected { color: #4ade80; }
+
+        input[type="text"] {
+            width: 100%; padding: 12px; margin-bottom: 15px; box-sizing: border-box;
+            background: rgba(0,0,0,0.2); border: 1px solid var(--glass-border);
+            border-radius: 8px; color: #fff; font-size: 16px; transition: 0.3s;
+        }
+        input[type="text"]:focus { outline: none; border-color: var(--accent); background: rgba(0,0,0,0.4); }
+
+        button {
+            padding: 12px 24px; border: none; border-radius: 8px; font-weight: 600; font-size: 14px;
+            cursor: pointer; transition: 0.3s; text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        #btnConnect { background: var(--accent); color: #0f172a; }
+        #btnConnect:hover { background: var(--accent-hover); }
+        #btnRecord { background: rgba(255,255,255,0.1); color: #fff; width: 100%; border: 1px solid var(--glass-border); }
+        #btnRecord.recording { background: #ef4444; color: white; border-color: #ef4444; }
+
+        hr { border: 0; height: 1px; background: var(--glass-border); margin: 25px 0; }
+
+        /* Dynamic Telemetry Display */
+        #telemetryLabels { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 15px; }
+        .tel-badge {
+            background: rgba(0,0,0,0.2); padding: 8px 16px; border-radius: 8px;
+            border: 1px solid var(--glass-border); font-family: monospace; font-size: 15px;
+        }
+
+        /* Chart Canvas Container */
+        .chart-container {
+            background: rgba(0,0,0,0.2); border-radius: 12px; padding: 15px;
+            border: 1px solid var(--glass-border);
+        }
+        canvas { width: 100% !important; height: 300px !important; }
+
+        /* Dynamic Controls */
+        #dynamicControls { display: grid; grid-template-columns: 1fr; gap: 15px; }
+        .slider-container {
+            background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .slider-label { display: flex; justify-content: space-between; margin-bottom: 10px; font-weight: 500; }
+        input[type="range"] {
+            width: 100%; accent-color: var(--accent); background: rgba(255,255,255,0.1);
+            height: 6px; border-radius: 4px; outline: none; -webkit-appearance: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%;
+            background: var(--accent); cursor: pointer; box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>System Telemetry Dashboard</h2>
+
+    <input type="text" id="ipAddress" placeholder="ESP32 IP (e.g., 192.168.1.50)">
+    
+    <div class="row">
+        <span id="lblStatus" class="status disconnected">Disconnected</span>
+        <button id="btnConnect" onclick="toggleConnection()">Connect</button>
+    </div>
+
+    <hr>
+
+    <div id="telemetryLabels">
+        <span class="tel-badge text-muted">Awaiting connection...</span>
+    </div>
+    
+    <button id="btnRecord" onclick="toggleRecording()">Start Recording</button>
+
+    <hr>
+
+    <div class="chart-container">
+        <canvas id="telemetryChart"></canvas>
+    </div>
+
+    <hr>
+
+    <div id="dynamicControls">
+        </div>
+</div>
+
+<script>
+    let ws = null;
+    const WS_PORT = 8080;
+    
+    let telemetryConfig = [];
+    let sliderConfig = [];
+    
+    // Filtering & Recording
+    const filterAlpha = 0.8;
+    let filteredData = [];
+    let isRecording = false;
+    let recordedData = [];
+    const MAX_POINTS = 100;
+    const CHART_COLORS = ['#38bdf8', '#f87171', '#4ade80', '#facc15', '#a78bfa'];
+
+    // Chart Instance
+    const ctx = document.getElementById('telemetryChart').getContext('2d');
+    let chart = new Chart(ctx, {
+        type: 'line',
+        data: { labels: [], datasets: [] },
+        options: {
+            animation: false,
+            plugins: { legend: { labels: { color: '#e2e8f0' } } },
+            scales: {
+                x: { title: { display: true, text: 'Time (ms)', color: '#94a3b8' }, ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,0.1)' } },
+                y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,0.1)' } }
+            }
+        }
+    });
+
+    function toggleConnection() {
+        if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+        else connectToRobot();
+    }
+
+    function connectToRobot() {
+        const ip = document.getElementById('ipAddress').value || "localhost";
+        const statusLbl = document.getElementById('lblStatus');
+        const btnConnect = document.getElementById('btnConnect');
+
+        statusLbl.innerText = "Connecting..."; statusLbl.className = "status";
+        ws = new WebSocket(`ws://${ip}:${WS_PORT}`);
+
+        ws.onopen = () => {
+            statusLbl.innerText = "Connected"; statusLbl.className = "status connected";
+            btnConnect.innerText = "Disconnect"; btnConnect.style.background = "#ef4444";
+        };
+
+        ws.onclose = () => {
+            statusLbl.innerText = "Disconnected"; statusLbl.className = "status disconnected";
+            btnConnect.innerText = "Connect"; btnConnect.style.background = "var(--accent)";
+            if (isRecording) toggleRecording();
+            resetDashboard();
+        };
+
+        ws.onmessage = (event) => {
+            const line = event.data.trim();
+            
+            // 1. Handle Handshake Configuration
+            if (line.startsWith("CONFIG:")) {
+                try {
+                    const configJson = JSON.parse(line.substring(7));
+                    buildDashboard(configJson);
+                } catch (e) { console.error("Failed to parse config:", e); }
+            }
+            
+            // 2. Handle Data Stream
+            else if (line.startsWith("DATA:")) {
+                if (telemetryConfig.length === 0) return; // Wait for config
+                
+                const parts = line.substring(5).split(",");
+                const timestampMs = parseInt(parts[0]);
+                
+                chart.data.labels.push(timestampMs);
+                let rowRecord = [timestampMs];
+
+                for(let i = 0; i < telemetryConfig.length; i++) {
+                    const rawVal = parseFloat(parts[i+1]);
+                    
+                    // Low-Pass Filter
+                    if (filteredData[i] === null || filteredData[i] === undefined) {
+                        filteredData[i] = rawVal;
+                    } else {
+                        filteredData[i] = (filterAlpha * rawVal) + ((1.0 - filterAlpha) * filteredData[i]);
+                    }
+
+                    const safeVal = filteredData[i] || 0;
+
+                    // Update UI Labels
+                    document.getElementById(`lbl_tel_${i}`).innerText = `${telemetryConfig[i]}: ${safeVal.toFixed(2)}`;
+                    
+                    // Update Chart
+                    chart.data.datasets[i].data.push(safeVal);
+                    rowRecord.push(safeVal.toFixed(3));
+                }
+
+                if (chart.data.labels.length > MAX_POINTS) {
+                    chart.data.labels.shift();
+                    chart.data.datasets.forEach(ds => ds.data.shift());
+                }
+                chart.update();
+
+                if (isRecording) recordedData.push(rowRecord);
+            }
+        };
+    }
+
+    function buildDashboard(config) {
+        sliderConfig = config.sliders || [];
+        telemetryConfig = config.telemetry || [];
+        filteredData = new Array(telemetryConfig.length).fill(null);
+
+        // 1. Build Sliders
+        const controlsDiv = document.getElementById('dynamicControls');
+        controlsDiv.innerHTML = "";
+        
+        sliderConfig.forEach(slider => {
+            const html = `
+                <div class="slider-container">
+                    <div class="slider-label">
+                        <span>${slider.label}</span>
+                        <span id="lbl_val_${slider.id}" style="color: var(--accent);">${(slider.val * slider.scale).toFixed(2)}</span>
+                    </div>
+                    <input type="range" id="sl_${slider.id}" min="${slider.min}" max="${slider.max}" value="${slider.val}" 
+                           oninput="updateUILabel('${slider.id}', this.value, ${slider.scale})"
+                           onchange="sendParameterUpdate('${slider.id}', this.value, ${slider.scale})">
+                </div>
+            `;
+            controlsDiv.insertAdjacentHTML('beforeend', html);
+        });
+
+        // 2. Build Telemetry Labels & Chart Datasets
+        const labelsDiv = document.getElementById('telemetryLabels');
+        labelsDiv.innerHTML = "";
+        chart.data.datasets = [];
+
+        telemetryConfig.forEach((name, index) => {
+            labelsDiv.insertAdjacentHTML('beforeend', `<span id="lbl_tel_${index}" class="tel-badge">${name}: --</span>`);
+            
+            chart.data.datasets.push({
+                label: name,
+                borderColor: CHART_COLORS[index % CHART_COLORS.length],
+                data: [], fill: false, tension: 0.1, pointRadius: 0, borderWidth: 2
+            });
+        });
+        chart.update();
+    }
+
+    function resetDashboard() {
+        document.getElementById('telemetryLabels').innerHTML = `<span class="tel-badge text-muted">Awaiting connection...</span>`;
+        document.getElementById('dynamicControls').innerHTML = "";
+        chart.data.labels = [];
+        chart.data.datasets = [];
+        chart.update();
+        telemetryConfig = [];
+    }
+
+    function updateUILabel(id, value, scale) {
+        document.getElementById(`lbl_val_${id}`).innerText = (value * scale).toFixed(2);
+    }
+
+    function sendParameterUpdate(id, value, scale) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            const finalValue = (value * scale).toFixed(2);
+            ws.send(`SET:${id}:${finalValue}`);
+        }
+    }
+
+    function toggleRecording() {
+        const btnRecord = document.getElementById('btnRecord');
+        
+        if (!isRecording) {
+            recordedData = [];
+            isRecording = true;
+            btnRecord.innerText = "Stop Recording";
+            btnRecord.classList.add('recording');
+        } else {
+            isRecording = false;
+            btnRecord.innerText = "Start Recording";
+            btnRecord.classList.remove('recording');
+            downloadCSV();
+        }
+    }
+
+    function downloadCSV() {
+        if (recordedData.length === 0 || telemetryConfig.length === 0) return;
+
+        const uniqueId = Date.now().toString().slice(-4); 
+        const filename = `telemetry_log_${uniqueId}.csv`;
+
+        // Create dynamic header based on config
+        let header = "Timestamp_ms," + telemetryConfig.join(",") + "\n";
+        let csvContent = header;
+        
+        recordedData.forEach(row => { csvContent += row.join(",") + "\n"; });
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", filename);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+</script>
+
+</body>
+</html>
