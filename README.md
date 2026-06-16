@@ -68,7 +68,7 @@ board_build.partitions = huge_app.csv
 
 ; CRITICAL: Replaces the stock ESP32 core with a custom Bluepad32-compatible core
 platform_packages = 
-    framework-arduinoespressif32@[https://github.com/maxgerhardt/pio-framework-bluepad32/archive/refs/heads/main.zip](https://github.com/maxgerhardt/pio-framework-bluepad32/archive/refs/heads/main.zip)
+    framework-arduinoespressif32@https://github.com/maxgerhardt/pio-framework-bluepad32/archive/refs/heads/main.zip
 
 lib_deps = 
     bblanchon/ArduinoJson@^7.0.4
